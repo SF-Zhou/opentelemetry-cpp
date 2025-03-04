@@ -145,6 +145,8 @@ class Logger : public opentelemetry::logs::Logger
    */
   std::string provId;
 
+  std::string eventName_;
+
   /**
    * @brief Encoding (Manifest, MessagePack or XML)
    */
@@ -179,10 +181,12 @@ public:
    * @param encoding ETW encoding format to use.
    */
   Logger(etw::LoggerProvider &parent,
+         nostd::string_view eventName,
          nostd::string_view providerId     = "",
          ETWProvider::EventFormat encoding = ETWProvider::EventFormat::ETW_MANIFEST)
       : opentelemetry::logs::Logger(),
         loggerProvider_(parent),
+        eventName_(eventName),
         provId(providerId.data(), providerId.size()),
         encoding(encoding),
         provHandle(initProvHandle())
@@ -229,7 +233,7 @@ public:
                    opentelemetry::trace::TraceId trace_id,
                    opentelemetry::trace::SpanId span_id,
                    opentelemetry::trace::TraceFlags trace_flags,
-                   common::SystemTimestamp timestamp) noexcept
+                   opentelemetry::common::SystemTimestamp timestamp) noexcept
   {
     UNREFERENCED_PARAMETER(trace_flags);
 
@@ -271,7 +275,7 @@ public:
 #endif  // defined(ENABLE_ENV_PROPERTIES)
 
     // Populate Etw.EventName attribute at envelope level
-    evt[ETW_FIELD_NAME] = ETW_VALUE_LOG;
+    evt[ETW_FIELD_NAME] = eventName_.data();
 
 #ifdef HAVE_FIELD_TIME
     {
@@ -319,6 +323,35 @@ public:
     }
     evt[ETW_FIELD_LOG_SEVERITY_NUM] = static_cast<uint32_t>(severity);
     evt[ETW_FIELD_LOG_BODY]         = std::string(body.data(), body.length());
+
+#if defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+
+    for (const auto &attr : cfg.timestampAttributes)
+    {
+      auto it = evt.find(attr);
+      if (it != evt.end())
+      {
+        auto value_index = it->second.index();
+        if (value_index != exporter_etw::PropertyType::kTypeInt64 &&
+            value_index != exporter_etw::PropertyType::kTypeUInt64)
+        {
+          continue;
+        }
+        int64_t filetime = value_index == exporter_etw::PropertyType::kTypeUInt64
+                               ? nostd::get<uint64_t>(it->second)
+                               : nostd::get<int64_t>(it->second);
+        constexpr int64_t FILETIME_EPOCH_DIFF = 11644473600LL;  // Seconds from 1601 to 1970
+        constexpr int64_t HUNDRED_NANOSECONDS_PER_SECOND = 10000000LL;
+        int64_t unix_time_seconds =
+            (filetime / HUNDRED_NANOSECONDS_PER_SECOND) - FILETIME_EPOCH_DIFF;
+        int64_t unix_time_nanos =
+            unix_time_seconds * 1'000'000'000 + (filetime % HUNDRED_NANOSECONDS_PER_SECOND) * 100;
+        it->second = utils::formatUtcTimestampNsAsISO8601(unix_time_nanos);
+      }
+    }
+
+#endif  // defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+
     etwProvider().write(provHandle, evt, nullptr, nullptr, 0, encoding);
   }
 
@@ -347,6 +380,14 @@ public:
     GetOption(options, "enableTraceId", config_.enableTraceId, true);
     GetOption(options, "enableSpanId", config_.enableSpanId, true);
     GetOption(options, "enableActivityId", config_.enableActivityId, false);
+    GetOption(options, "enableTableNameMappings", config_.enableTableNameMappings, false);
+    GetOption(options, "tableNameMappings", config_.tableNameMappings, {});
+
+#if defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+
+    GetOption(options, "timestampAttributes", config_.timestampAttributes, {});
+
+#endif  // defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
 
     // Determines what encoding to use for ETW events: TraceLogging Dynamic, MsgPack, XML, etc.
     config_.encoding = GetEncoding(options);
@@ -358,19 +399,31 @@ public:
   }
 
   nostd::shared_ptr<opentelemetry::logs::Logger> GetLogger(
-      nostd::string_view logger_name,
-      nostd::string_view library_name,
-      nostd::string_view version                 = "",
-      nostd::string_view schema_url              = "",
-      const common::KeyValueIterable &attributes = common::NoopKeyValueIterable()) override
+      opentelemetry::nostd::string_view logger_name,
+      opentelemetry::nostd::string_view library_name = "",
+      opentelemetry::nostd::string_view version      = "",
+      opentelemetry::nostd::string_view schema_url   = "",
+      const opentelemetry::common::KeyValueIterable &attributes =
+          opentelemetry::common::NoopKeyValueIterable()) override
   {
-    UNREFERENCED_PARAMETER(library_name);
     UNREFERENCED_PARAMETER(version);
     UNREFERENCED_PARAMETER(schema_url);
     UNREFERENCED_PARAMETER(attributes);
+
+    std::string event_name{ETW_VALUE_LOG};
+    if (config_.enableTableNameMappings)
+    {
+      auto it =
+          config_.tableNameMappings.find(std::string(library_name.data(), library_name.size()));
+      if (it != config_.tableNameMappings.end())
+      {
+        event_name = it->second;
+      }
+    }
+
     ETWProvider::EventFormat evtFmt = config_.encoding;
     return nostd::shared_ptr<opentelemetry::logs::Logger>{
-        new (std::nothrow) etw::Logger(*this, logger_name, evtFmt)};
+        new (std::nothrow) etw::Logger(*this, event_name, logger_name, evtFmt)};
   }
 };
 

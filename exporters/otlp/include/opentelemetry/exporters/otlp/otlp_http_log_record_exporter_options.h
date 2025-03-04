@@ -3,14 +3,13 @@
 
 #pragma once
 
+#include <chrono>
+#include <cstdint>
+#include <string>
+
 #include "opentelemetry/exporters/otlp/otlp_environment.h"
 #include "opentelemetry/exporters/otlp/otlp_http.h"
 #include "opentelemetry/version.h"
-
-#include <chrono>
-#include <cstddef>
-#include <memory>
-#include <string>
 
 OPENTELEMETRY_BEGIN_NAMESPACE
 namespace exporter
@@ -68,7 +67,6 @@ struct OPENTELEMETRY_EXPORT OtlpHttpLogRecordExporterOptions
   std::size_t max_requests_per_connection;
 #endif
 
-#ifdef ENABLE_OTLP_HTTP_SSL_PREVIEW
   /** True do disable SSL. */
   bool ssl_insecure_skip_verify;
 
@@ -89,9 +87,7 @@ struct OPENTELEMETRY_EXPORT OtlpHttpLogRecordExporterOptions
 
   /** CLIENT CERT, as a string. */
   std::string ssl_client_cert_string;
-#endif /* ENABLE_OTLP_HTTP_SSL_PREVIEW */
 
-#ifdef ENABLE_OTLP_HTTP_SSL_TLS_PREVIEW
   /** Minimum TLS version. */
   std::string ssl_min_tls;
 
@@ -103,7 +99,21 @@ struct OPENTELEMETRY_EXPORT OtlpHttpLogRecordExporterOptions
 
   /** TLS cipher suite. */
   std::string ssl_cipher_suite;
-#endif /* ENABLE_OTLP_HTTP_SSL_TLS_PREVIEW */
+
+  /** Compression type. */
+  std::string compression;
+
+  /** The maximum number of call attempts, including the original attempt. */
+  std::uint32_t retry_policy_max_attempts{};
+
+  /** The initial backoff delay between retry attempts, random between (0, initial_backoff). */
+  std::chrono::duration<float> retry_policy_initial_backoff{};
+
+  /** The maximum backoff places an upper limit on exponential backoff growth. */
+  std::chrono::duration<float> retry_policy_max_backoff{};
+
+  /** The backoff will be multiplied by this value after each retry attempt. */
+  float retry_policy_backoff_multiplier{};
 };
 
 }  // namespace otlp

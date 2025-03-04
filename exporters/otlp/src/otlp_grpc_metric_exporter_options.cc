@@ -11,6 +11,7 @@ namespace otlp
 {
 
 OtlpGrpcMetricExporterOptions::OtlpGrpcMetricExporterOptions()
+    : aggregation_temporality(PreferredAggregationTemporality::kCumulative)
 {
   endpoint                    = GetOtlpDefaultGrpcMetricsEndpoint();
   use_ssl_credentials         = !GetOtlpDefaultGrpcMetricsIsInsecure(); /* negation intended. */
@@ -28,7 +29,17 @@ OtlpGrpcMetricExporterOptions::OtlpGrpcMetricExporterOptions()
   metadata   = GetOtlpDefaultMetricsHeaders();
   user_agent = GetOtlpDefaultUserAgent();
 
-  aggregation_temporality = PreferredAggregationTemporality::kCumulative;
+  max_threads = 0;
+
+  compression = GetOtlpDefaultMetricsCompression();
+#ifdef ENABLE_ASYNC_EXPORT
+  max_concurrent_requests = 64;
+#endif
+
+  retry_policy_max_attempts       = GetOtlpDefaultMetricsRetryMaxAttempts();
+  retry_policy_initial_backoff    = GetOtlpDefaultMetricsRetryInitialBackoff();
+  retry_policy_max_backoff        = GetOtlpDefaultMetricsRetryMaxBackoff();
+  retry_policy_backoff_multiplier = GetOtlpDefaultMetricsRetryBackoffMultiplier();
 }
 
 OtlpGrpcMetricExporterOptions::~OtlpGrpcMetricExporterOptions() {}

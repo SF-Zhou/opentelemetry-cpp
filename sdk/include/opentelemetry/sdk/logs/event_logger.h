@@ -6,6 +6,8 @@
 #include <string>
 
 #include "opentelemetry/logs/event_logger.h"
+#include "opentelemetry/logs/log_record.h"
+#include "opentelemetry/logs/logger.h"
 #include "opentelemetry/nostd/shared_ptr.h"
 #include "opentelemetry/nostd/string_view.h"
 #include "opentelemetry/nostd/unique_ptr.h"
@@ -16,10 +18,8 @@ namespace sdk
 {
 namespace logs
 {
-class Logger;
-class LogRecord;
-
-class EventLogger final : public opentelemetry::logs::EventLogger
+#if OPENTELEMETRY_ABI_VERSION_NO < 2
+class OPENTELEMETRY_DEPRECATED EventLogger final : public opentelemetry::logs::EventLogger
 {
 public:
   /**
@@ -46,7 +46,7 @@ private:
   nostd::shared_ptr<opentelemetry::logs::Logger> delegate_logger_;
   std::string event_domain_;
 };
-
+#endif
 }  // namespace logs
 }  // namespace sdk
 OPENTELEMETRY_END_NAMESPACE

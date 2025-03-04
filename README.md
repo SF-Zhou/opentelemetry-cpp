@@ -5,6 +5,8 @@
 [![Build
 Status](https://github.com/open-telemetry/opentelemetry-cpp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/open-telemetry/opentelemetry-cpp/actions)
 [![Release](https://img.shields.io/github/v/release/open-telemetry/opentelemetry-cpp?include_prereleases&style=)](https://github.com/open-telemetry/opentelemetry-cpp/releases/)
+[![FOSSA License Status](https://app.fossa.com/api/projects/custom%2B162%2Fgithub.com%2Fopen-telemetry%2Fopentelemetry-cpp.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B162%2Fgithub.com%2Fopen-telemetry%2Fopentelemetry-cpp?ref=badge_shield&issueType=license)
+[![FOSSA Security Status](https://app.fossa.com/api/projects/custom%2B162%2Fgithub.com%2Fopen-telemetry%2Fopentelemetry-cpp.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B162%2Fgithub.com%2Fopen-telemetry%2Fopentelemetry-cpp?ref=badge_shield&issueType=security)
 
 The C++ [OpenTelemetry](https://opentelemetry.io/) client.
 
@@ -74,7 +76,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 We meet weekly, and the time of the meeting alternates between Monday at 13:00
 PT and Wednesday at 9:00 PT. The meeting is subject to change depending on
 contributors' availability. Check the [OpenTelemetry community
-calendar](https://calendar.google.com/calendar/embed?src=google.com_b79e3e90j7bbsa2n2p5an5lf60%40group.calendar.google.com)
+calendar](https://github.com/open-telemetry/community#calendar)
 for specific dates and Zoom meeting links.
 
 Meeting notes are available as a public [Google

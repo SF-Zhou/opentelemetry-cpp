@@ -51,6 +51,29 @@ struct OtlpGrpcClientOptions
 
   /** User agent. */
   std::string user_agent;
+
+  /** max number of threads that can be allocated from this */
+  std::size_t max_threads;
+
+  /** Compression type. */
+  std::string compression;
+
+#ifdef ENABLE_ASYNC_EXPORT
+  // Concurrent requests
+  std::size_t max_concurrent_requests;
+#endif
+
+  /** The maximum number of call attempts, including the original attempt. */
+  std::uint32_t retry_policy_max_attempts{};
+
+  /** The initial backoff delay between retry attempts, random between (0, initial_backoff). */
+  std::chrono::duration<float> retry_policy_initial_backoff{};
+
+  /** The maximum backoff places an upper limit on exponential backoff growth. */
+  std::chrono::duration<float> retry_policy_max_backoff{};
+
+  /** The backoff will be multiplied by this value after each retry attempt. */
+  float retry_policy_backoff_multiplier{};
 };
 
 }  // namespace otlp

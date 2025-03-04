@@ -6,6 +6,8 @@ target_link_libraries(metrics_common_test_utils opentelemetry_metrics)
 
 foreach(
   testname
+  meter_config_test
+  meter_provider_set_test
   meter_provider_sdk_test
   meter_test
   view_registry_test
@@ -19,6 +21,7 @@ foreach(
   cardinality_limit_test
   histogram_test
   sync_metric_storage_counter_test
+  sync_metric_storage_gauge_test
   sync_metric_storage_histogram_test
   sync_metric_storage_up_down_counter_test
   async_metric_storage_test

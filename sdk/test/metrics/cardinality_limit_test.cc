@@ -1,15 +1,39 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+#include <gtest/gtest.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <algorithm>
+#include <chrono>
+#include <functional>
+#include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 #include "common.h"
+
 #include "opentelemetry/common/key_value_iterable_view.h"
+#include "opentelemetry/context/context.h"
+#include "opentelemetry/nostd/function_ref.h"
+#include "opentelemetry/nostd/span.h"
+#include "opentelemetry/nostd/variant.h"
+#include "opentelemetry/sdk/common/attributemap_hash.h"
+#include "opentelemetry/sdk/metrics/aggregation/aggregation.h"
 #include "opentelemetry/sdk/metrics/aggregation/sum_aggregation.h"
+#include "opentelemetry/sdk/metrics/data/metric_data.h"
+#include "opentelemetry/sdk/metrics/data/point_data.h"
 #include "opentelemetry/sdk/metrics/instruments.h"
 #include "opentelemetry/sdk/metrics/state/attributes_hashmap.h"
+#include "opentelemetry/sdk/metrics/state/filtered_ordered_attribute_map.h"
+#include "opentelemetry/sdk/metrics/state/metric_collector.h"
 #include "opentelemetry/sdk/metrics/state/sync_metric_storage.h"
+#include "opentelemetry/sdk/metrics/view/attributes_processor.h"
 
-#include <gtest/gtest.h>
-#include <functional>
+#ifdef ENABLE_METRICS_EXEMPLAR_PREVIEW
+#  include "opentelemetry/sdk/metrics/exemplar/filter_type.h"
+#endif
 
 using namespace opentelemetry::sdk::metrics;
 using namespace opentelemetry::common;
@@ -23,11 +47,11 @@ TEST(CardinalityLimit, AttributesHashMapBasicTests)
     return std::unique_ptr<Aggregation>(new LongSumAggregation(true));
   };
   // add 10 unique metric points. 9 should be added to hashmap, 10th should be overflow.
-  long record_value = 100;
+  int64_t record_value = 100;
   for (auto i = 0; i < 10; i++)
   {
-    OrderedAttributeMap attributes = {{"key", std::to_string(i)}};
-    auto hash                      = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
+    FilteredOrderedAttributeMap attributes = {{"key", std::to_string(i)}};
+    auto hash = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
     static_cast<LongSumAggregation *>(
         hash_map.GetOrSetDefault(attributes, aggregation_callback, hash))
         ->Aggregate(record_value);
@@ -37,21 +61,54 @@ TEST(CardinalityLimit, AttributesHashMapBasicTests)
   // overflowmetric point.
   for (auto i = 10; i < 15; i++)
   {
-    OrderedAttributeMap attributes = {{"key", std::to_string(i)}};
-    auto hash                      = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
+    FilteredOrderedAttributeMap attributes = {{"key", std::to_string(i)}};
+    auto hash = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
     static_cast<LongSumAggregation *>(
         hash_map.GetOrSetDefault(attributes, aggregation_callback, hash))
         ->Aggregate(record_value);
   }
   EXPECT_EQ(hash_map.Size(), 10);  // only one more metric point should be added as overflow.
+  // record 5 more measurements to already existing (and not-overflow) metric points. They
+  // should get aggregated to these existing metric points.
+  for (auto i = 0; i < 5; i++)
+  {
+    FilteredOrderedAttributeMap attributes = {{"key", std::to_string(i)}};
+    auto hash = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
+    static_cast<LongSumAggregation *>(
+        hash_map.GetOrSetDefault(attributes, aggregation_callback, hash))
+        ->Aggregate(record_value);
+  }
+  EXPECT_EQ(hash_map.Size(), 10);  // no new metric point added
+
   // get the overflow metric point
-  auto agg = hash_map.GetOrSetDefault(
-      OrderedAttributeMap({{kAttributesLimitOverflowKey, kAttributesLimitOverflowValue}}),
+  auto agg1 = hash_map.GetOrSetDefault(
+      FilteredOrderedAttributeMap({{kAttributesLimitOverflowKey, kAttributesLimitOverflowValue}}),
       aggregation_callback, kOverflowAttributesHash);
-  EXPECT_NE(agg, nullptr);
-  auto sum_agg = static_cast<LongSumAggregation *>(agg);
-  EXPECT_EQ(nostd::get<int64_t>(nostd::get<SumPointData>(sum_agg->ToPoint()).value_),
+  EXPECT_NE(agg1, nullptr);
+  auto sum_agg1 = static_cast<LongSumAggregation *>(agg1);
+  EXPECT_EQ(nostd::get<int64_t>(nostd::get<SumPointData>(sum_agg1->ToPoint()).value_),
             record_value * 6);  // 1 from previous 10, 5 from current 5.
+  // get remaining metric points
+  for (auto i = 0; i < 9; i++)
+  {
+    FilteredOrderedAttributeMap attributes = {{"key", std::to_string(i)}};
+    auto hash = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
+    auto agg2 = hash_map.GetOrSetDefault(
+        FilteredOrderedAttributeMap({{kAttributesLimitOverflowKey, kAttributesLimitOverflowValue}}),
+        aggregation_callback, hash);
+    EXPECT_NE(agg2, nullptr);
+    auto sum_agg2 = static_cast<LongSumAggregation *>(agg2);
+    if (i < 5)
+    {
+      EXPECT_EQ(nostd::get<int64_t>(nostd::get<SumPointData>(sum_agg2->ToPoint()).value_),
+                record_value * 2);  // 1 from first recording, 1 from third recording
+    }
+    else
+    {
+      EXPECT_EQ(nostd::get<int64_t>(nostd::get<SumPointData>(sum_agg2->ToPoint()).value_),
+                record_value);  // 1 from first recording
+    }
+  }
 }
 
 class WritableMetricStorageCardinalityLimitTestFixture
@@ -67,9 +124,13 @@ TEST_P(WritableMetricStorageCardinalityLimitTestFixture, LongCounterSumAggregati
   std::unique_ptr<DefaultAttributesProcessor> default_attributes_processor{
       new DefaultAttributesProcessor{}};
   SyncMetricStorage storage(instr_desc, AggregationType::kSum, default_attributes_processor.get(),
-                            ExemplarReservoir::GetNoExemplarReservoir(), nullptr, attributes_limit);
+#ifdef ENABLE_METRICS_EXEMPLAR_PREVIEW
+                            ExemplarFilterType::kAlwaysOff,
+                            ExemplarReservoir::GetNoExemplarReservoir(),
+#endif
+                            nullptr, attributes_limit);
 
-  long record_value = 100;
+  int64_t record_value = 100;
   // add 9 unique metric points, and 6 more above limit.
   for (auto i = 0; i < 15; i++)
   {

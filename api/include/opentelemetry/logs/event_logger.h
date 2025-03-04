@@ -14,10 +14,11 @@
 OPENTELEMETRY_BEGIN_NAMESPACE
 namespace logs
 {
+#if OPENTELEMETRY_ABI_VERSION_NO < 2
 /**
  * Handles event log record creation.
  **/
-class EventLogger
+class OPENTELEMETRY_DEPRECATED EventLogger
 {
 public:
   virtual ~EventLogger() = default;
@@ -56,7 +57,7 @@ public:
    *  span<pair<string_view, AttributeValue>> -> attributes(return type of MakeAttributes)
    */
   template <class... ArgumentType>
-  void EmitEvent(nostd::string_view event_name, ArgumentType &&... args)
+  void EmitEvent(nostd::string_view event_name, ArgumentType &&...args)
   {
     nostd::shared_ptr<Logger> delegate_logger = GetDelegateLogger();
     if (!delegate_logger)
@@ -64,14 +65,9 @@ public:
       return;
     }
     nostd::unique_ptr<LogRecord> log_record = delegate_logger->CreateLogRecord();
-    if (!log_record)
-    {
-      return;
-    }
 
-    IgnoreTraitResult(
-        detail::LogRecordSetterTrait<typename std::decay<ArgumentType>::type>::template Set(
-            log_record.get(), std::forward<ArgumentType>(args))...);
+    IgnoreTraitResult(detail::LogRecordSetterTrait<typename std::decay<ArgumentType>::type>::Set(
+        log_record.get(), std::forward<ArgumentType>(args))...);
 
     EmitEvent(event_name, std::move(log_record));
   }
@@ -81,5 +77,6 @@ private:
   void IgnoreTraitResult(ValueType &&...)
   {}
 };
+#endif
 }  // namespace logs
 OPENTELEMETRY_END_NAMESPACE

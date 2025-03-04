@@ -29,6 +29,18 @@ OtlpGrpcExporterOptions::OtlpGrpcExporterOptions()
   timeout    = GetOtlpDefaultTracesTimeout();
   metadata   = GetOtlpDefaultTracesHeaders();
   user_agent = GetOtlpDefaultUserAgent();
+
+  max_threads = 0;
+
+  compression = GetOtlpDefaultTracesCompression();
+#ifdef ENABLE_ASYNC_EXPORT
+  max_concurrent_requests = 64;
+#endif
+
+  retry_policy_max_attempts       = GetOtlpDefaultTracesRetryMaxAttempts();
+  retry_policy_initial_backoff    = GetOtlpDefaultTracesRetryInitialBackoff();
+  retry_policy_max_backoff        = GetOtlpDefaultTracesRetryMaxBackoff();
+  retry_policy_backoff_multiplier = GetOtlpDefaultTracesRetryBackoffMultiplier();
 }
 
 OtlpGrpcExporterOptions::~OtlpGrpcExporterOptions() {}

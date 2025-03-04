@@ -107,7 +107,7 @@ std::string GetName(T &t)
  * @return              Span Start timestamp
  */
 template <class T>
-common::SystemTimestamp GetStartTime(T &t)
+opentelemetry::common::SystemTimestamp GetStartTime(T &t)
 {
   return t.GetStartTime();
 }
@@ -119,7 +119,7 @@ common::SystemTimestamp GetStartTime(T &t)
  * @return             Span Stop timestamp
  */
 template <class T>
-common::SystemTimestamp GetEndTime(T &t)
+opentelemetry::common::SystemTimestamp GetEndTime(T &t)
 {
   return t.GetEndTime();
 }
@@ -161,7 +161,7 @@ void UpdateStatus(T &t, Properties &props)
  */
 
 class Tracer : public opentelemetry::trace::Tracer,
-               public std::enable_shared_from_this<trace::Tracer>
+               public std::enable_shared_from_this<opentelemetry::trace::Tracer>
 {
 
   /**
@@ -212,19 +212,41 @@ class Tracer : public opentelemetry::trace::Tracer,
     // Add `SpanLinks` attribute if the list is not empty
     if (links.size())
     {
-      size_t idx = 0;
+      bool first = true;
       std::string linksValue;
-      links.ForEachKeyValue(
-          [&](opentelemetry::trace::SpanContext ctx, const common::KeyValueIterable &) {
-            if (!linksValue.empty())
-            {
-              linksValue += ',';
-              linksValue += ToLowerBase16(ctx.span_id());
-            }
-            idx++;
-            return true;
-          });
-      attributes[ETW_FIELD_SPAN_LINKS] = linksValue;
+
+      // reserve space for all the SpanLinks.
+      // A single SpanLink will be outptut as:
+      // [{"toSpanId":"9a43c801557f26b7","toTraceId":"ac6cd70ac4bb168a99cb7651b048d965"}]
+      // The second and above link output to string are 1 byte less than the first SpanLink.
+      const size_t kSingleSpanLinkSizeInBytes = 80;
+      linksValue.reserve(kSingleSpanLinkSizeInBytes +
+                         (links.size() - 1) * (kSingleSpanLinkSizeInBytes - 1));
+      linksValue += "[";
+
+      links.ForEachKeyValue([&](opentelemetry::trace::SpanContext ctx,
+                                const opentelemetry::common::KeyValueIterable &) {
+        if (first)
+        {
+          first = false;
+          linksValue += "{\"" ETW_FIELD_SPAN_LINKS_TO_SPAN_ID "\":\"";
+        }
+        else
+        {
+          linksValue += ",{\"" ETW_FIELD_SPAN_LINKS_TO_SPAN_ID "\":\"";
+        }
+
+        linksValue += ToLowerBase16(ctx.span_id());
+        linksValue += "\",\"" ETW_FIELD_SPAN_LINKS_TO_TRACE_ID "\":\"";
+        linksValue += ToLowerBase16(ctx.trace_id());
+        linksValue += "\"}";
+
+        return true;
+      });
+
+      linksValue += "]";
+
+      attributes[ETW_FIELD_SPAN_LINKS] = std::move(linksValue);
     }
   }
 
@@ -414,7 +436,7 @@ public:
    */
   nostd::shared_ptr<opentelemetry::trace::Span> StartSpan(
       nostd::string_view name,
-      const common::KeyValueIterable &attributes,
+      const opentelemetry::common::KeyValueIterable &attributes,
       const opentelemetry::trace::SpanContextKeyValueIterable &links,
       const opentelemetry::trace::StartSpanOptions &options = {}) noexcept override
   {
@@ -425,8 +447,9 @@ public:
     Properties evtCopy = attributes;
     return StartSpan(name, evtCopy, links, options);
 #else  // OPENTELEMETRY_RTTI_ENABLED is defined
-    common::KeyValueIterable &attribs = const_cast<common::KeyValueIterable &>(attributes);
-    Properties *evt                   = dynamic_cast<Properties *>(&attribs);
+    opentelemetry::common::KeyValueIterable &attribs =
+        const_cast<opentelemetry::common::KeyValueIterable &>(attributes);
+    Properties *evt = dynamic_cast<Properties *>(&attribs);
     if (evt != nullptr)
     {
       // Pass as a reference to original modifyable collection without creating a copy
@@ -484,15 +507,15 @@ public:
     auto spanContext =
         std::unique_ptr<opentelemetry::trace::SpanContext>(new opentelemetry::trace::SpanContext(
             traceId, GetIdGenerator(tracerProvider_).GenerateSpanId(), traceFlags, false,
-            sampling_result.trace_state
-                ? sampling_result.trace_state
-                : parentContext.IsValid() ? parentContext.trace_state()
-                                          : opentelemetry::trace::TraceState::GetDefault()));
+            sampling_result.trace_state ? sampling_result.trace_state
+            : parentContext.IsValid()   ? parentContext.trace_state()
+                                        : opentelemetry::trace::TraceState::GetDefault()));
 
     if (sampling_result.decision == sdk::trace::Decision::DROP)
     {
-      auto noopSpan = nostd::shared_ptr<trace::Span>{
-          new (std::nothrow) trace::NoopSpan(this->shared_from_this(), std::move(spanContext))};
+      auto noopSpan = nostd::shared_ptr<opentelemetry::trace::Span>{
+          new (std::nothrow)
+              opentelemetry::trace::NoopSpan(this->shared_from_this(), std::move(spanContext))};
       return noopSpan;
     }
 
@@ -567,6 +590,7 @@ public:
     return result;
   }
 
+#if OPENTELEMETRY_ABI_VERSION_NO == 1
   /**
    * @brief Force flush data to Tracer, spending up to given amount of microseconds to flush.
    * NOTE: this method has no effect for the realtime streaming Tracer.
@@ -592,6 +616,7 @@ public:
       etwProvider().close(provHandle);
     }
   }
+#endif
 
   /**
    * @brief Add event data to span associated with tracer.
@@ -602,9 +627,9 @@ public:
    * @return
    */
   void AddEvent(opentelemetry::trace::Span &span,
-                nostd::string_view name,
-                common::SystemTimestamp timestamp,
-                const common::KeyValueIterable &attributes) noexcept
+                opentelemetry::nostd::string_view name,
+                opentelemetry::common::SystemTimestamp timestamp,
+                const opentelemetry::common::KeyValueIterable &attributes) noexcept
   {
     // If RTTI is enabled by compiler, the below code modifies the attributes object passed as arg,
     // which is sometime not desirable, set OPENTELEMETRY_NOT_USE_RTTI in application
@@ -614,8 +639,9 @@ public:
     Properties evtCopy = attributes;
     return AddEvent(span, name, timestamp, evtCopy);
 #else  // OPENTELEMETRY_RTTI_ENABLED is defined
-    common::KeyValueIterable &attribs = const_cast<common::KeyValueIterable &>(attributes);
-    Properties *evt                   = dynamic_cast<Properties *>(&attribs);
+    opentelemetry::common::KeyValueIterable &attribs =
+        const_cast<opentelemetry::common::KeyValueIterable &>(attributes);
+    Properties *evt = dynamic_cast<Properties *>(&attribs);
     if (evt != nullptr)
     {
       // Pass as a reference to original modifyable collection without creating a copy
@@ -635,8 +661,8 @@ public:
    * @return
    */
   void AddEvent(opentelemetry::trace::Span &span,
-                nostd::string_view name,
-                common::SystemTimestamp timestamp,
+                opentelemetry::nostd::string_view name,
+                opentelemetry::common::SystemTimestamp timestamp,
                 Properties &evt) noexcept
   {
     // TODO: respect originating timestamp. Do we need to reserve
@@ -693,8 +719,8 @@ public:
    * @return
    */
   void AddEvent(opentelemetry::trace::Span &span,
-                nostd::string_view name,
-                common::SystemTimestamp timestamp) noexcept
+                opentelemetry::nostd::string_view name,
+                opentelemetry::common::SystemTimestamp timestamp) noexcept
   {
     AddEvent(span, name, timestamp, sdk::GetEmptyAttributes());
   }
@@ -712,7 +738,18 @@ public:
   /**
    * @brief Tracer destructor.
    */
-  virtual ~Tracer() { CloseWithMicroseconds(0); }
+  virtual ~Tracer()
+  {
+#if OPENTELEMETRY_ABI_VERSION_NO == 1
+    CloseWithMicroseconds(0);
+#else
+    // Close once only
+    if (!isClosed_.exchange(true))
+    {
+      etwProvider().close(provHandle);
+    }
+#endif
+  }
 };
 
 /**
@@ -728,8 +765,8 @@ protected:
    */
   Properties attributes_;
 
-  common::SystemTimestamp start_time_;
-  common::SystemTimestamp end_time_;
+  opentelemetry::common::SystemTimestamp start_time_;
+  opentelemetry::common::SystemTimestamp end_time_;
 
   opentelemetry::trace::StatusCode status_code_{opentelemetry::trace::StatusCode::kUnset};
   std::string status_description_;
@@ -794,13 +831,13 @@ public:
    * @brief Get start time of this Span.
    * @return
    */
-  common::SystemTimestamp GetStartTime() { return start_time_; }
+  opentelemetry::common::SystemTimestamp GetStartTime() { return start_time_; }
 
   /**
    * @brief Get end time of this Span.
    * @return
    */
-  common::SystemTimestamp GetEndTime() { return end_time_; }
+  opentelemetry::common::SystemTimestamp GetEndTime() { return end_time_; }
 
   /**
    * @brief Get Span Name.
@@ -849,7 +886,8 @@ public:
    * @param timestamp
    * @return
    */
-  void AddEvent(nostd::string_view name, common::SystemTimestamp timestamp) noexcept override
+  void AddEvent(nostd::string_view name,
+                opentelemetry::common::SystemTimestamp timestamp) noexcept override
   {
     owner_.AddEvent(*this, name, timestamp);
   }
@@ -861,12 +899,40 @@ public:
    * @param attributes Event attributes.
    * @return
    */
-  void AddEvent(nostd::string_view name,
-                common::SystemTimestamp timestamp,
-                const common::KeyValueIterable &attributes) noexcept override
+  void AddEvent(opentelemetry::nostd::string_view name,
+                opentelemetry::common::SystemTimestamp timestamp,
+                const opentelemetry::common::KeyValueIterable &attributes) noexcept override
   {
     owner_.AddEvent(*this, name, timestamp, attributes);
   }
+
+#if OPENTELEMETRY_ABI_VERSION_NO >= 2
+
+  /**
+   * Add link (ABI).
+   *
+   * See comments about sampling in @ref opentelemetry::trace::Span
+   *
+   * @since ABI_VERSION 2
+   */
+  void AddLink(const trace::SpanContext & /*target*/,
+               const common::KeyValueIterable & /*attrs*/) noexcept override
+  {
+    // FIXME: What to do with links?
+  }
+
+  /**
+   * Add links (ABI).
+   *
+   * See comments about sampling in @ref opentelemetry::trace::Span
+   *
+   * @since ABI_VERSION 2
+   */
+  void AddLinks(const trace::SpanContextKeyValueIterable & /*links*/) noexcept override
+  {
+    // FIXME: What to do with links?
+  }
+#endif
 
   /**
    * @brief Set Span status
@@ -901,7 +967,8 @@ public:
    * @param value
    * @return
    */
-  void SetAttribute(nostd::string_view key, const common::AttributeValue &value) noexcept override
+  void SetAttribute(nostd::string_view key,
+                    const opentelemetry::common::AttributeValue &value) noexcept override
   {
     // don't override fields propagated from span data.
     if (key == ETW_FIELD_NAME || key == ETW_FIELD_SPAN_ID || key == ETW_FIELD_TRACE_ID ||
@@ -1090,7 +1157,13 @@ public:
   nostd::shared_ptr<opentelemetry::trace::Tracer> GetTracer(
       nostd::string_view name,
       nostd::string_view args       = "",
-      nostd::string_view schema_url = "") noexcept override
+      nostd::string_view schema_url = ""
+#if OPENTELEMETRY_ABI_VERSION_NO >= 2
+      ,
+      // FIXME: This is a temporary workaround to avoid breaking compiling.
+      const common::KeyValueIterable * /*attributes*/ = nullptr
+#endif
+      ) noexcept override
   {
     UNREFERENCED_PARAMETER(args);
     UNREFERENCED_PARAMETER(schema_url);

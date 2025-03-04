@@ -7,40 +7,49 @@
 #include <memory>
 #include <mutex>
 
+#include "opentelemetry/metrics/meter.h"
 #include "opentelemetry/metrics/meter_provider.h"
 #include "opentelemetry/nostd/shared_ptr.h"
 #include "opentelemetry/nostd/string_view.h"
+#include "opentelemetry/sdk/metrics/meter_context.h"
+#include "opentelemetry/sdk/metrics/metric_reader.h"
+#include "opentelemetry/sdk/metrics/view/instrument_selector.h"
+#include "opentelemetry/sdk/metrics/view/meter_selector.h"
+#include "opentelemetry/sdk/metrics/view/view.h"
 #include "opentelemetry/sdk/metrics/view/view_registry.h"
 #include "opentelemetry/sdk/resource/resource.h"
 #include "opentelemetry/version.h"
 
-OPENTELEMETRY_BEGIN_NAMESPACE
-namespace metrics
-{
-class Meter;
-}  // namespace metrics
+#include "opentelemetry/sdk/instrumentationscope/scope_configurator.h"
+#include "opentelemetry/sdk/metrics/meter.h"
 
+#ifdef ENABLE_METRICS_EXEMPLAR_PREVIEW
+#  include "opentelemetry/sdk/metrics/exemplar/filter_type.h"
+#endif
+
+OPENTELEMETRY_BEGIN_NAMESPACE
 namespace sdk
 {
 namespace metrics
 {
 
-// forward declaration
-class MeterContext;
-class MetricCollector;
-class MetricReader;
-
 class OPENTELEMETRY_EXPORT MeterProvider final : public opentelemetry::metrics::MeterProvider
 {
 public:
   /**
-   * Initialize a new meter provider
+   * Initialize a new meter provider.
    * @param views The views for this meter provider
    * @param resource  The resources for this meter provider.
+   * @param meter_configurator Provides access to a function that computes the MeterConfig for
+   * Meters provided by this MeterProvider.
    */
   MeterProvider(
-      std::unique_ptr<ViewRegistry> views = std::unique_ptr<ViewRegistry>(new ViewRegistry()),
-      sdk::resource::Resource resource    = sdk::resource::Resource::Create({})) noexcept;
+      std::unique_ptr<ViewRegistry> views     = std::unique_ptr<ViewRegistry>(new ViewRegistry()),
+      const sdk::resource::Resource &resource = sdk::resource::Resource::Create({}),
+      std::unique_ptr<instrumentationscope::ScopeConfigurator<MeterConfig>> meter_configurator =
+          std::make_unique<instrumentationscope::ScopeConfigurator<MeterConfig>>(
+              instrumentationscope::ScopeConfigurator<MeterConfig>::Builder(MeterConfig::Default())
+                  .Build())) noexcept;
 
   /**
    * Initialize a new meter provider with a specified context
@@ -100,10 +109,17 @@ public:
                std::unique_ptr<MeterSelector> meter_selector,
                std::unique_ptr<View> view) noexcept;
 
+#ifdef ENABLE_METRICS_EXEMPLAR_PREVIEW
+
+  void SetExemplarFilter(metrics::ExemplarFilterType exemplar_filter_type =
+                             metrics::ExemplarFilterType::kTraceBased) noexcept;
+
+#endif
+
   /**
    * Shutdown the meter provider.
    */
-  bool Shutdown() noexcept;
+  bool Shutdown(std::chrono::microseconds timeout = (std::chrono::microseconds::max)()) noexcept;
 
   /**
    * Force flush the meter provider.

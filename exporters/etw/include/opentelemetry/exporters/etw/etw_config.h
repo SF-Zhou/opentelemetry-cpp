@@ -4,16 +4,20 @@
 #pragma once
 #include <map>
 
+#if defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+#  include <set>
+#endif  // defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+
 #include "opentelemetry/nostd/shared_ptr.h"
 #include "opentelemetry/nostd/string_view.h"
 #include "opentelemetry/nostd/unique_ptr.h"
 #include "opentelemetry/nostd/variant.h"
 #include "opentelemetry/trace/span_id.h"
 
-#include "opentelemetry//sdk/trace/sampler.h"
 #include "opentelemetry/exporters/etw/etw_provider.h"
 #include "opentelemetry/exporters/etw/etw_tail_sampler.h"
 #include "opentelemetry/sdk/trace/id_generator.h"
+#include "opentelemetry/sdk/trace/sampler.h"
 
 OPENTELEMETRY_BEGIN_NAMESPACE
 namespace exporter
@@ -23,8 +27,22 @@ namespace etw
 /**
  * @brief TelemetryProvider Options passed via SDK API.
  */
-using TelemetryProviderOptions =
-    std::map<std::string, nostd::variant<std::string, uint64_t, float, bool>>;
+
+#if defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+using TelemetryProviderOptions = std::map<std::string,
+                                          nostd::variant<std::string,
+                                                         uint64_t,
+                                                         float,
+                                                         bool,
+                                                         std::map<std::string, std::string>,
+                                                         std::set<std::string>>>;
+
+#else
+using TelemetryProviderOptions = std::map<
+    std::string,
+    nostd::variant<std::string, uint64_t, float, bool, std::map<std::string, std::string>>>;
+
+#endif  // defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
 
 /**
  * @brief TelemetryProvider runtime configuration class. Internal representation
@@ -41,6 +59,16 @@ typedef struct
   bool enableAutoParent;  // Start new spans as children of current active span, Not used for Logs
   ETWProvider::EventFormat
       encoding;  // Event encoding to use for this provider (TLD, MsgPack, XML, etc.).
+  bool enableTableNameMappings;  // Map instrumentation scope name to table name with
+                                 // `tableNameMappings`
+  std::map<std::string, std::string> tableNameMappings;
+
+#if defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+
+  std::set<std::string> timestampAttributes;  // Attributes to use as timestamp
+
+#endif  // defined(OPENTELEMETRY_ATTRIBUTE_TIMESTAMP_PREVIEW)
+
 } TelemetryProviderConfiguration;
 
 /**

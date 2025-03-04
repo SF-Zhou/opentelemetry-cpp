@@ -62,8 +62,8 @@ public:
   {
     std::string eventName = "MyEvent";
     Properties event      = {{"uint32Key", (uint32_t)1234},
-                        {"uint64Key", (uint64_t)1234567890},
-                        {"strKey", "someValue"}};
+                             {"uint64Key", (uint64_t)1234567890},
+                             {"strKey", "someValue"}};
     span_->AddEvent(eventName, event);
     return true;
   }
@@ -116,7 +116,9 @@ public:
   void Teardown()
   {
     span_->End();
+#  if OPENTELEMETRY_ABI_VERSION_NO == 1
     tracer_->CloseWithMicroseconds(0);
+#  endif
   }
 };
 
